@@ -1,0 +1,207 @@
+---
+title: "Homework1"
+format: html
+editor: visual
+---
+
+## Homework 1
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(tidytext)
+library(ggplot2)
+library(forcats)
+library(tibble)
+library(scales)
+```
+
+```{r}
+
+list.files("texts")
+
+getwd()
+dir.exists("texts")
+list.files("texts", all.files = TRUE)
+
+list.files(path = ".", pattern = "\\.txt$", recursive = TRUE)
+
+```
+
+```{r}
+# ---- Set file paths (based on actual file locations) ----
+# The text files are stored inside the 'assignment_1/' directory
+file_a <- "texts/A07594__Circle_of_Commerce.txt"
+file_b <- "texts/B14801__Free_Trade.txt"
+
+# ---- Read the raw text files into R ----
+text_a <- readr::read_file(file_a)
+text_b <- readr::read_file(file_b)
+
+# ---- Combine texts into a tibble (one row per document) ----
+# This structure is required for tidytext workflows
+texts <- tibble::tibble(
+  doc_title = c("Text A", "Text B"),
+  text      = c(text_a, text_b)
+)
+
+# Display the tibble
+texts
+```
+
+```{r}
+# Start with tidytext's built-in stopword list
+data("stop_words")
+
+# Add our own project-specific stopwords (you can, and will, expand this list later)
+custom_stopwords <- tibble(
+  word = c(
+    "vnto", "haue", "doo", "hath", "bee", "ye", "thee"
+  )
+)
+
+all_stopwords <- bind_rows(stop_words, custom_stopwords) %>%
+  distinct(word)
+
+all_stopwords %>% slice(1:10)
+```
+
+```{r}
+word_counts <- texts %>%
+  unnest_tokens(word, text) %>%
+  mutate(word = str_to_lower(word)) %>%
+  anti_join(all_stopwords, by = "word") %>%
+  count(doc_title, word, sort = TRUE)
+
+word_counts
+```
+
+```{r}
+word_comparison_tbl <- word_counts |>
+  pivot_wider(
+    names_from  = doc_title,
+    values_from = n,
+    values_fill = 0
+  )
+
+```
+
+```{r}
+word_comparison_tbl <- word_comparison_tbl |>
+  mutate(
+    max_n = pmax(`Text A`, `Text B`)
+  ) |>
+  arrange(desc(max_n))
+
+```
+
+```{r}
+# Keep only the top 20 most frequent words overall
+top_20_words <- word_comparison_tbl |>
+  slice_head(n = 20)
+
+
+```
+
+```{r}
+top_20_long <- top_20_words |>
+  pivot_longer(
+    cols = c(`Text A`, `Text B`),
+    names_to = "doc_title",
+    values_to = "n"
+  )
+
+```
+
+```{r}
+ggplot(top_20_long,
+       aes(x = n, y = fct_reorder(word, n))) +
+  geom_col() +
+  facet_wrap(~ doc_title, scales = "free_x") +
+  labs(
+    title = "Top 20 Most Frequent Words Across Texts",
+    x = "Word Count",
+    y = NULL
+  )
+
+```
+
+```{r}
+bigrams <- texts %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+bigrams
+```
+
+```{r}
+bigrams_separated <- bigrams %>%
+  separate(bigram, into = c("word1", "word2"), sep = " ")
+
+bigrams_separated
+```
+
+```{r}
+bigrams_filtered <- bigrams_separated %>%
+  filter(
+    !word1 %in% all_stopwords$word,
+    !word2 %in% all_stopwords$word
+  )
+
+bigrams_filtered
+```
+
+```{r}
+bigram_counts <- bigrams_filtered %>%
+  count(doc_title, word1, word2, sort = TRUE)
+
+bigram_counts
+```
+
+```{r}
+bigram_counts <- bigram_counts %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigram_counts
+```
+
+```{r}
+bigram_relative <- bigram_counts %>%
+  group_by(doc_title) %>%
+  mutate(
+    total_bigrams = sum(n),
+    proportion = n / total_bigrams
+  ) %>%
+  ungroup()
+
+bigram_wide <- bigram_relative %>%
+  select(doc_title, bigram, proportion) %>%
+  pivot_wider(
+    names_from = doc_title,
+    values_from = proportion,
+    values_fill = 0
+  )
+
+bigram_wide
+```
+
+```{r}
+bigram_diff <- bigram_wide %>%
+  mutate(
+    diff = `Text A` - `Text B`
+  ) %>%
+  arrange(desc(abs(diff)))
+
+bigram_diff %>% slice(1:20)
+```
+
+**Interpretation of the results**
+
+-   How do you interpret the results above? What do they tell you?
+
+The visualization shows that the two texts share many of the same high-frequency terms after stopword removal, indicating that they address overlapping themes related to commerce and economic activity. However, the relative prominence of specific words differs across the texts, suggesting differences in emphasis and rhetorical focus. For example, some terms appear much more frequently in one text than the other, even though they are part of the shared top-20 vocabulary. This indicates that while the texts are comparable in subject matter, they do not treat those subjects in the same way or with the same intensity. Overall, the results demonstrate how side-by-side word frequency comparisons can reveal meaningful differences in thematic emphasis between texts, even when they use similar language.
+
+-   There is a problem with the list above due to spelling inconsistencies in the period (as well as the fact that we ignored numbers). How do you think this is affecting our results? Next week, you will learn a way to fix this.
+
+Spelling inconsistencies in the period (such as variant spellings of the same word) cause what are conceptually identical terms to be counted as separate word types. This artificially fragments word frequencies, lowering the apparent importance of key concepts and potentially pushing them out of the top-frequency list. Ignoring numbers has a similar effect, as numerical references that may be substantively meaningful are excluded entirely from the analysis. Together, these issues introduce noise and bias into the frequency counts, making the results less representative of the true thematic emphasis of the texts. As a result, the comparison may understate the prominence of important ideas or misrepresent differences between the texts.
